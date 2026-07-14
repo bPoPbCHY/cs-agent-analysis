@@ -459,11 +459,13 @@ async function doStreamAnalyze(message) {
               document.getElementById('streaming-area').innerHTML = '';
             }, 300);
 
-            // 添加分析卡片到时间线
-            appendRound(
-              document.getElementById('timeline').querySelectorAll('.round').length,
-              message, fieldValues
-            );
+            // 把分析卡片插入当前轮次的用户消息下面（不再新建 round，避免重复）
+            var allRounds = document.getElementById('timeline').querySelectorAll('.round');
+            var currentRound = allRounds[allRounds.length - 1];
+            if (currentRound) {
+              currentRound.appendChild(buildAnalysisCard(fieldValues));
+              currentRound.scrollIntoView({behavior: 'smooth'});
+            }
           } else if (eventType === 'error') {
             throw new Error(data.error);
           }
@@ -484,25 +486,34 @@ async function doStreamAnalyze(message) {
   }
 }
 
+// 仅生成分析卡片 DOM（流式完成后插入已有 round，不重复显示用户消息）
+function buildAnalysisCard(analysis) {
+  var card = document.createElement('div');
+  card.className = 'analysis-card';
+  card.innerHTML =
+    '<div class="analysis-summary" onclick="toggleDetail(this)">' +
+    formatFieldValue('intent', analysis.intent) + ' ' +
+    formatFieldValue('sentiment', analysis.sentiment) + ' ' +
+    formatFieldValue('priority', analysis.priority) + ' ' +
+    '<span style="color:var(--text-muted);font-size:0.7rem;margin-left:auto;">▾</span>' +
+    '</div>' +
+    '<div class="analysis-detail open">' +
+    '<div class="analysis-row"><span class="label">系统动作</span>' + formatFieldValue('action', analysis.action) + '</div>' +
+    '<div class="reply-bubble">' + escapeHtml(analysis.reply || '') + '</div>' +
+    '</div>';
+  return card;
+}
+
+// 生成完整一轮（用户消息 + 分析卡片），用于 loadHistory 恢复历史
 function appendRound(num, userMsg, analysis) {
   var div = document.createElement('div');
   div.className = 'round';
 
   var html = '<div class="round-header"><span class="round-num">第 ' + num + ' 轮</span></div>';
   html += '<div class="user-bubble">' + escapeHtml(userMsg) + '</div>';
-  html += '<div class="analysis-card">';
-  html += '<div class="analysis-summary" onclick="toggleDetail(this)">';
-  html += formatFieldValue('intent', analysis.intent) + ' ';
-  html += formatFieldValue('sentiment', analysis.sentiment) + ' ';
-  html += formatFieldValue('priority', analysis.priority) + ' ';
-  html += '<span style="color:var(--text-muted);font-size:0.7rem;margin-left:auto;">▸</span>';
-  html += '</div>';
-  html += '<div class="analysis-detail">';
-  html += '<div class="analysis-row"><span class="label">系统动作</span>' + formatFieldValue('action', analysis.action) + '</div>';
-  html += '<div class="reply-bubble">' + escapeHtml(analysis.reply || '') + '</div>';
-  html += '</div></div>';
 
   div.innerHTML = html;
+  div.appendChild(buildAnalysisCard(analysis));
   document.getElementById('timeline').appendChild(div);
   div.scrollIntoView({behavior: 'smooth'});
 }
