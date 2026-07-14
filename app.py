@@ -20,7 +20,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 加载 .env（在项目根目录）
-env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
 load_dotenv(env_path)
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
