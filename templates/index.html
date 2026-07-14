@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>客服分析 Agent — 多轮记忆版</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4eb;
+    --text-muted: #8b8fa3;
+    --accent: #7c5cfc;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --orange: #fb923c;
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+  }
+  .container {
+    max-width: 720px;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0 20px;
+  }
+
+  /* 顶栏 */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .topbar h1 { font-size: 1.2rem; font-weight: 700; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .round-badge {
+    font-size: 0.7rem;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: rgba(124,92,252,0.15);
+    color: var(--accent);
+  }
+  .btn-new {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-new:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-model {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-model:hover { border-color: var(--text-muted); }
+  .btn-model.active { border-color: var(--accent); color: var(--accent); }
+
+  /* 对话时间线 */
+  .timeline {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .timeline:empty::after {
+    content: '输入客户消息开始对话…';
+    color: var(--text-muted);
+    text-align: center;
+    padding: 60px 20px;
+    font-size: 0.9rem;
+  }
+
+  /* 一轮对话 */
+  .round {
+    animation: fadeIn 0.4s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .round-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .round-num {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: var(--card);
+    padding: 2px 10px;
+    border-radius: 10px;
+  }
+
+  /* 用户消息气泡 */
+  .user-bubble {
+    background: var(--accent);
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: 16px 16px 4px 16px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 10px;
+    display: inline-block;
+    max-width: 85%;
+  }
+
+  /* 分析卡片 */
+  .analysis-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .analysis-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .analysis-summary:hover { background: rgba(255,255,255,0.02); }
+  .analysis-detail { padding: 0 14px 14px; display: none; }
+  .analysis-detail.open { display: block; }
+  .analysis-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; font-size: 0.85rem; }
+  .analysis-row .label { color: var(--text-muted); min-width: 60px; flex-shrink: 0; font-size: 0.75rem; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge-intent-refund { background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-intent-complaint { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .badge-intent-inquiry { background: rgba(124,92,252,0.15); color: var(--accent); }
+  .badge-intent-purchase { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-intent-other { background: rgba(139,143,163,0.15); color: var(--text-muted); }
+  .badge-sentiment-positive { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-sentiment-neutral { background: rgba(139,143,163,0.15); color: var(--text-muted); }
+  .badge-sentiment-negative { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .badge-sentiment-angry { background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-action-create_ticket { background: rgba(124,92,252,0.15); color: var(--accent); }
+  .badge-action-escalate_human { background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-action-auto_reply { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-action-refund { background: rgba(251,146,60,0.15); color: var(--orange); }
+
+  .priority-bar { display: flex; gap: 3px; }
+  .priority-seg { width: 20px; height: 5px; border-radius: 3px; background: var(--border); }
+  .priority-seg.on { background: var(--accent); }
+  .priority-seg.on.high { background: var(--red); }
+
+  /* 流式进度（在当前轮） */
+  .streaming-round {
+    background: var(--card);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .thinking-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    color: var(--yellow);
+    font-size: 0.85rem;
+  }
+  .thinking-dots { display: flex; gap: 3px; }
+  .thinking-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--yellow); animation: bounce 0.6s infinite alternate; }
+  .thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce { from { opacity: 0.3; transform: translateY(0); } to { opacity: 1; transform: translateY(-4px); } }
+
+  .stream-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 0.82rem;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: all 0.3s ease;
+  }
+  .stream-step.show { opacity: 1; transform: translateX(0); }
+  .stream-step .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+  .stream-step .s-label { color: var(--text-muted); min-width: 70px; font-size: 0.73rem; }
+
+  .reply-bubble {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+
+  /* 底部输入 */
+  .bottom-bar {
+    flex-shrink: 0;
+    padding: 16px 0 24px;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .input-row { display: flex; gap: 10px; }
+  .input-row input {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .input-row input:focus { border-color: var(--accent); }
+  .input-row button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+  .input-row button:hover { opacity: 0.85; }
+  .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .error-msg {
+    background: rgba(248,113,113,0.1);
+    border: 1px solid rgba(248,113,113,0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--red);
+    font-size: 0.8rem;
+    margin-top: 10px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- 顶栏 -->
+  <div class="topbar">
+    <h1>🎧 客服分析 Agent</h1>
+    <div class="topbar-right">
+      <span class="round-badge" id="round-badge" style="display:none">第 0 轮</span>
+      <button class="btn-model" id="btn-model" onclick="toggleModel()">🖥️ Ollama</button>
+      <button class="btn-new" onclick="newSession()">＋ 新对话</button>
+    </div>
+  </div>
+
+  <!-- 对话时间线 -->
+  <div class="timeline" id="timeline"></div>
+
+  <!-- 流式进度（当前分析中） -->
+  <div id="streaming-area"></div>
+
+  <!-- 底部输入 -->
+  <div class="bottom-bar">
+    <div class="error-msg" id="error-msg"></div>
+    <div class="input-row">
+      <input id="message-input" type="text" placeholder="输入客户消息，例如：我要退款…" />
+      <button id="btn-send" onclick="sendMessage()">发送</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var useAnthropic = false;
+var sessionId = '';
+var isStreaming = false;
+
+// 页面加载：恢复 session 或创建新的
+(function init() {
+  var saved = localStorage.getItem('cs_session_id');
+  if (saved) {
+    sessionId = saved;
+    loadHistory();
+  } else {
+    newSession();
+  }
+  document.getElementById('message-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+})();
+
+function newSession() {
+  fetch('/reset', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId}),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    sessionId = data.session_id;
+    localStorage.setItem('cs_session_id', sessionId);
+    document.getElementById('timeline').innerHTML = '';
+    document.getElementById('round-badge').style.display = 'none';
+    document.getElementById('error-msg').style.display = 'none';
+  });
+}
+
+function loadHistory() {
+  fetch('/history', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId}),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.rounds && data.rounds.length > 0) {
+      for (var i = 0; i < data.rounds.length; i++) {
+        appendRound(i + 1, data.rounds[i].user_msg, data.rounds[i].analysis);
+      }
+      document.getElementById('round-badge').style.display = 'inline';
+      document.getElementById('round-badge').textContent = '第 ' + data.rounds.length + ' 轮';
+    }
+  });
+}
+
+function toggleModel() {
+  useAnthropic = !useAnthropic;
+  var btn = document.getElementById('btn-model');
+  if (useAnthropic) {
+    btn.textContent = '☁️ Anthropic';
+    btn.classList.add('active');
+  } else {
+    btn.textContent = '🖥️ Ollama';
+    btn.classList.remove('active');
+  }
+}
+
+function sendMessage() {
+  if (isStreaming) return;
+  var input = document.getElementById('message-input');
+  var message = input.value.trim();
+  if (!message) return;
+
+  input.value = '';
+  input.disabled = true;
+  isStreaming = true;
+  document.getElementById('btn-send').disabled = true;
+  document.getElementById('error-msg').style.display = 'none';
+
+  // 在时间线中显示用户消息
+  var roundNum = (document.getElementById('timeline').querySelectorAll('.round').length) + 1;
+  var userBubble = document.createElement('div');
+  userBubble.className = 'round';
+  userBubble.innerHTML =
+    '<div class="round-header"><span class="round-num">第 ' + roundNum + ' 轮</span></div>' +
+    '<div class="user-bubble">' + escapeHtml(message) + '</div>';
+  document.getElementById('timeline').appendChild(userBubble);
+  document.getElementById('round-badge').style.display = 'inline';
+  document.getElementById('round-badge').textContent = '第 ' + roundNum + ' 轮';
+
+  // 创建流式进度区
+  var streamArea = document.getElementById('streaming-area');
+  streamArea.innerHTML =
+    '<div class="streaming-round">' +
+    '<div class="thinking-indicator" id="thinking-indicator">' +
+    '<span>Agent 思考中</span>' +
+    '<div class="thinking-dots"><span></span><span></span><span></span></div>' +
+    '</div>' +
+    '<div id="stream-steps"></div>' +
+    '</div>';
+  streamArea.scrollIntoView({behavior: 'smooth'});
+
+  doStreamAnalyze(message);
+}
+
+async function doStreamAnalyze(message) {
+  try {
+    var resp = await fetch('/analyze-stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: message, use_anthropic: useAnthropic, session_id: sessionId}),
+    });
+
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    var fieldValues = {};
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+
+      buffer += decoder.decode(chunk.value, {stream: true});
+      var lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      var eventType = '';
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.indexOf('event: ') === 0) {
+          eventType = line.slice(7).trim();
+        } else if (line.indexOf('data: ') === 0) {
+          var dataStr = line.slice(6).trim();
+          if (!dataStr) continue;
+          var data = JSON.parse(dataStr);
+
+          if (eventType === 'phase') {
+            var indicator = document.getElementById('thinking-indicator');
+            if (indicator && data.label) {
+              indicator.querySelector('span').textContent = data.label;
+            }
+          } else if (eventType === 'field') {
+            var indicator = document.getElementById('thinking-indicator');
+            if (indicator) { indicator.remove(); }
+
+            fieldValues[data.key] = data.value;
+            var step = document.createElement('div');
+            step.className = 'stream-step';
+            step.innerHTML = '<div class="dot"></div><span class="s-label">' + data.label + '</span><span>' + formatFieldValue(data.key, data.value) + '</span>';
+            document.getElementById('stream-steps').appendChild(step);
+            requestAnimationFrame(function() { step.classList.add('show'); });
+          } else if (eventType === 'done') {
+            sessionId = data.session_id || sessionId;
+            localStorage.setItem('cs_session_id', sessionId);
+
+            // 清除流式区
+            setTimeout(function() {
+              document.getElementById('streaming-area').innerHTML = '';
+            }, 300);
+
+            // 添加分析卡片到时间线
+            appendRound(
+              document.getElementById('timeline').querySelectorAll('.round').length,
+              message, fieldValues
+            );
+          } else if (eventType === 'error') {
+            throw new Error(data.error);
+          }
+          eventType = '';
+        }
+      }
+    }
+  } catch (err) {
+    document.getElementById('streaming-area').innerHTML = '';
+    var errEl = document.getElementById('error-msg');
+    errEl.textContent = '❌ ' + (err.message || '未知错误');
+    errEl.style.display = 'block';
+  } finally {
+    isStreaming = false;
+    document.getElementById('message-input').disabled = false;
+    document.getElementById('message-input').focus();
+    document.getElementById('btn-send').disabled = false;
+  }
+}
+
+function appendRound(num, userMsg, analysis) {
+  var div = document.createElement('div');
+  div.className = 'round';
+
+  var html = '<div class="round-header"><span class="round-num">第 ' + num + ' 轮</span></div>';
+  html += '<div class="user-bubble">' + escapeHtml(userMsg) + '</div>';
+  html += '<div class="analysis-card">';
+  html += '<div class="analysis-summary" onclick="toggleDetail(this)">';
+  html += formatFieldValue('intent', analysis.intent) + ' ';
+  html += formatFieldValue('sentiment', analysis.sentiment) + ' ';
+  html += formatFieldValue('priority', analysis.priority) + ' ';
+  html += '<span style="color:var(--text-muted);font-size:0.7rem;margin-left:auto;">▸</span>';
+  html += '</div>';
+  html += '<div class="analysis-detail">';
+  html += '<div class="analysis-row"><span class="label">系统动作</span>' + formatFieldValue('action', analysis.action) + '</div>';
+  html += '<div class="reply-bubble">' + escapeHtml(analysis.reply || '') + '</div>';
+  html += '</div></div>';
+
+  div.innerHTML = html;
+  document.getElementById('timeline').appendChild(div);
+  div.scrollIntoView({behavior: 'smooth'});
+}
+
+function toggleDetail(el) {
+  var detail = el.nextElementSibling;
+  detail.classList.toggle('open');
+  var arrow = el.querySelector('span:last-child');
+  arrow.textContent = detail.classList.contains('open') ? '▾' : '▸';
+}
+
+function formatFieldValue(key, value) {
+  if (key === 'priority') {
+    var h = '';
+    for (var i = 1; i <= 5; i++) {
+      h += '<div class="priority-seg' + (i <= value ? ' on' + (i >= 4 ? ' high' : '') : '') + '"></div>';
+    }
+    return '<span class="priority-bar">' + h + '</span>';
+  }
+  var cls = 'badge-' + key + '-' + value;
+  return '<span class="badge ' + cls + '">' + value + '</span>';
+}
+
+function escapeHtml(str) {
+  var div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
